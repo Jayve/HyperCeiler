@@ -2,7 +2,13 @@
 
 data class GprCredentials(val user: String, val key: String)
 
-fun loadGprCredentials(): GprCredentials {
+/**
+ * 读取 GitHub Packages 凭据，用于解析官方私有扩展库 hyperceiler-expansion。
+ *
+ * <p>缺失凭据时不再让配置阶段直接失败：跳过该私有仓库，改由仓库内
+ * {@code local-maven/} 的离线兜底产物提供同名依赖（见 FORK.md）。</p>
+ */
+fun loadGprCredentials(): GprCredentials? {
     // 优先从环境变量读取
     val envUser = System.getenv("GIT_ACTOR")?.takeIf { it.isNotBlank() }
     val envKey = System.getenv("GIT_TOKEN")?.takeIf { it.isNotBlank() }
@@ -13,29 +19,29 @@ fun loadGprCredentials(): GprCredentials {
 
     // 从 signing.properties 读取
     val propsFile = File(rootDir, "signing.properties")
-    if (!propsFile.exists()) {
-        throw GradleException(
-            "Missing GitHub credentials. Please either:\n" +
-            "  1. Set GIT_ACTOR and GIT_TOKEN environment variables, or\n" +
-            "  2. Create 'signing.properties' with 'gpr.user' and 'gpr.key'"
-        )
+    if (propsFile.exists()) {
+        val props = java.util.Properties().apply {
+            propsFile.inputStream().use { load(it) }
+        }
+
+        val user = props.getProperty("gpr.user")?.takeIf { it.isNotBlank() }
+        val key = props.getProperty("gpr.key")?.takeIf { it.isNotBlank() }
+
+        if (user != null && key != null) {
+            return GprCredentials(user, key)
+        }
     }
 
-    val props = java.util.Properties().apply {
-        propsFile.inputStream().use { load(it) }
-    }
-
-    val user = props.getProperty("gpr.user")?.takeIf { it.isNotBlank() }
-    val key = props.getProperty("gpr.key")?.takeIf { it.isNotBlank() }
-
-    if (user == null || key == null) {
-        throw GradleException("'gpr.user' and 'gpr.key' must be set in 'signing.properties'")
-    }
-
-    return GprCredentials(user, key)
+    println(
+        "WARNING: GitHub Packages credentials are missing (GIT_ACTOR/GIT_TOKEN or " +
+            "signing.properties with 'gpr.user'/'gpr.key'). The private " +
+            "'com.sevtinge.hyperceiler:hyperceiler-expansion' artifact will be resolved from the " +
+            "offline fallback in local-maven/ instead. See FORK.md for details."
+    )
+    return null
 }
 
-val gprCredentials by lazy { loadGprCredentials() }
+val gprCredentials: GprCredentials? by lazy { loadGprCredentials() }
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
@@ -58,14 +64,19 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         mavenLocal()
-        maven("https://maven.pkg.github.com/ReChronoRain/HyperCeiler") {
-            credentials {
-                username = gprCredentials.user
-                password = gprCredentials.key
+        // 官方私有扩展库；仅在提供了凭据时注册，否则交由末尾的离线兜底仓库
+        gprCredentials?.let { creds ->
+            maven("https://maven.pkg.github.com/ReChronoRain/HyperCeiler") {
+                credentials {
+                    username = creds.user
+                    password = creds.key
+                }
             }
         }
         maven("https://jitpack.io")
         maven("https://api.xposed.info")
+        // 私有产物不可用时的本地兜底（源码见 local-maven-src/expansion-compat）
+        maven(rootDir.resolve("local-maven"))
     }
 }
 

@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto eol=lf
+
+# 离线兜底产物（jar）按二进制处理，避免被当成文本改写
+*.jar binary
+*.pom text eol=lf

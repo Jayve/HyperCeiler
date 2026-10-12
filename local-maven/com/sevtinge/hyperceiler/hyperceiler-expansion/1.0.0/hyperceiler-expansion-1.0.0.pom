@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.sevtinge.hyperceiler</groupId>
+  <artifactId>hyperceiler-expansion</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <name>hyperceiler-expansion (offline fallback)</name>
+  <description>
+    离线兜底产物：上游 com.sevtinge.hyperceiler:hyperceiler-expansion 发布在 GitHub Packages
+    私有仓库，无凭据的 fork 构建使用本地产物。源码见 local-maven-src/expansion-compat。
+  </description>
+</project>
