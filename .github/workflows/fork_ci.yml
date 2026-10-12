@@ -1,6 +1,8 @@
 name: Fork Sync & Build
 
-# fork 专用：先把上游 main 合并进来，再构建 debug APK。
+# fork 专用：先把上游 main 合并进来，再构建 canary APK。
+# 用 canary 变体是为了与官方 canary 通道的产物一致（R8 优化、versionName 规则、
+# BUILD_TYPE=canary），而不是 debug 变体。
 # 说明见仓库根目录 FORK.md。
 on:
   push:
@@ -91,7 +93,7 @@ jobs:
           fi
 
   build:
-    name: Build debug APK
+    name: Build canary APK
     needs: [ sync_upstream ]
     # 同步被跳过（push 事件）或失败（冲突）时，仍然构建当前 main
     if: always()
@@ -125,15 +127,15 @@ jobs:
           fi
           echo "::notice::已提供 GitHub Packages 凭据（GIT_ACTOR=${GIT_ACTOR}）。"
 
-      - name: Build debug APK
+      - name: Build canary APK
         env:
           GIT_ACTOR: ${{ secrets.GIT_ACTOR }}
           GIT_TOKEN: ${{ secrets.GIT_TOKEN }}
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleCanary --stacktrace
 
       - name: Show APK SHA256
         run: |
-          APK_FILE=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          APK_FILE=$(find app/build/outputs/apk/canary -name '*.apk' | head -n 1)
           echo "### Build Success" >> "$GITHUB_STEP_SUMMARY"
           echo "|Artifact|SHA256|" >> "$GITHUB_STEP_SUMMARY"
           echo "|:---:|:---|" >> "$GITHUB_STEP_SUMMARY"
@@ -142,8 +144,8 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: HyperCeiler-debug-${{ github.sha }}
-          path: app/build/outputs/apk/debug/*.apk
+          name: HyperCeiler-canary-${{ github.sha }}
+          path: app/build/outputs/apk/canary/*.apk
           if-no-files-found: error
           retention-days: 14
           compression-level: 9

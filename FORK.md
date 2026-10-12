@@ -4,7 +4,7 @@
 用于：
 
 1. 修复 `AntiQues`（设备名称违规词校验）在 Android 15 上不生效的问题；
-2. 自动同步上游并自动构建 debug APK。
+2. 自动同步上游并自动构建 canary APK。
 
 上游变更请只向上游仓库提 Issue/PR；本文件描述本 fork 的差异与用法。
 
@@ -59,7 +59,18 @@
 - `sync_upstream`：把 `upstream/main` 合并进 `main` 并推送；冲突时中止合并并自动开/更新
   带 `sync-conflict` 标签的 Issue 提示手动处理；
 - `build`：先检查 GitHub Packages 凭据（缺失时立即以明确原因失败，见下一节），再用 JDK 25
-  执行 `./gradlew assembleDebug`，上传 APK 产物并输出 SHA256。
+  执行 `./gradlew assembleCanary`，上传 APK 产物并输出 SHA256。
+
+> 为什么是 canary 而不是 debug：`app/build.gradle.kts` 里只有 release/beta/canary 走
+> `applyBase()`（`optimization.enable = true`，即官方包同样的 R8 优化），且
+> `BuildConfig.BUILD_TYPE` 会随变体写入产物——官方公告（`NoticeProcessor`）按
+> `buildType` 过滤，`debug` 包收不到发给 `canary` 的公告。canary 的 versionName 后缀
+> 也是官方的 `-<hash>-r<versionCode>`。
+>
+> 注意：变体只决定**行为**，签名由 keystore 决定。没有 `signing.properties` 时
+> canary 会回落到 AGP 现场生成的 debug keystore（每次构建都是随机的新密钥），
+> 产物依旧**无法**覆盖安装官方包；需要覆盖官方版就得用官方 `key.jks` 提供
+> `signing.properties`（见上游 `ci_build.yml` 的 `Create Sign File`）。
 
 `.github/workflows/ci_build.yml` 增加了 `github.repository == 'ReChronoRain/HyperCeiler'`
 判断（`build_app` 与 `native_host_tests`）：前者依赖官方签名密钥，后者在上游 CI 环境会因
@@ -112,5 +123,6 @@ gh secret set GIT_TOKEN  --repo Jayve/HyperCeiler --body "<你的 PAT>"
 ## 本地构建
 
 - JDK 25（`kotlin.jvmToolchain(25)`）、Android SDK（`compileSdk 37`）；
-- 无 `signing.properties` 时构建 debug 变体（用默认 debug 签名）；
+- `./gradlew assembleCanary` 对应官方 canary 通道的产物；无 `signing.properties` 时
+  回落用默认 debug 签名（与官方包签名不同，只能覆盖同签名的包）；
 - 无 GitHub Packages 凭据时自动使用 `local-maven` 兜底产物。
