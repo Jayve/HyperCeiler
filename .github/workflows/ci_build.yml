@@ -28,14 +28,18 @@ on:
 
 jobs:
   build_app:
+    # 上游 CI 依赖官方签名密钥与 GitHub Packages 凭据；fork 中由 fork_ci.yml 负责构建，
+    # 否则每次同步/推送都会因为缺少 secret 而失败。
     if: |
-      (
-        startsWith(github.event.head_commit.message, 'app: update version ')
-        ||
+      github.repository == 'ReChronoRain/HyperCeiler' && (
         (
-          !contains(github.event.head_commit.message, '[release]')
-          && !contains(github.event.head_commit.message, '[beta]')
-          && !contains(github.event.head_commit.message, 'app: update version')
+          startsWith(github.event.head_commit.message, 'app: update version ')
+          ||
+          (
+            !contains(github.event.head_commit.message, '[release]')
+            && !contains(github.event.head_commit.message, '[beta]')
+            && !contains(github.event.head_commit.message, 'app: update version')
+          )
         )
       )
     runs-on: macos-latest

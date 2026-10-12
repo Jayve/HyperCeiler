@@ -1,0 +1,147 @@
+name: Fork Sync & Build
+
+# fork 专用：先把上游 main 合并进来，再构建 debug APK。
+# 说明见仓库根目录 FORK.md。
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    # 每天 21:00 UTC = 次日 05:00 (Asia/Shanghai)
+    - cron: '0 21 * * *'
+  workflow_dispatch:
+
+# 同步需要向本仓库推送，冲突时需要写 issue
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: fork-sync-build
+  cancel-in-progress: false
+
+jobs:
+  sync_upstream:
+    name: Sync upstream
+    # push 事件说明是人工推送，跳过同步只跑构建
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge upstream/main
+        id: merge
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/ReChronoRain/HyperCeiler.git 2>/dev/null \
+            || git remote set-url upstream https://github.com/ReChronoRain/HyperCeiler.git
+          git fetch --no-tags upstream main
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Upstream is already merged, nothing to do."
+            exit 0
+          fi
+
+          if git merge --no-edit upstream/main; then
+            git push origin HEAD:main
+            echo "Merged upstream/main into main."
+          else
+            git merge --abort || true
+            echo "::error::Merging upstream/main produced conflicts, see the sync-conflict issue."
+            exit 1
+          fi
+
+      - name: Open or update conflict issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/sync-body.md <<'MD'
+          ## 上游同步冲突
+
+          自动把 `upstream/main` 合并到 `main` 时发生冲突，需要手动处理：
+
+          ```bash
+          git fetch upstream
+          git checkout main
+          git merge upstream/main
+          ```
+
+          解决冲突并推送后，本工作流下次运行会继续自动同步。
+
+          运行记录：__RUN_URL__
+          MD
+          sed -i "s|__RUN_URL__|${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|" /tmp/sync-body.md
+
+          number=$(gh issue list --state open --label sync-conflict --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file /tmp/sync-body.md
+          else
+            gh label create sync-conflict --color FBCA04 --description "上游同步冲突" 2>/dev/null || true
+            gh issue create \
+              --title "上游同步冲突：upstream/main 无法自动合并" \
+              --body-file /tmp/sync-body.md \
+              --label sync-conflict
+          fi
+
+  build:
+    name: Build debug APK
+    needs: [ sync_upstream ]
+    # 同步被跳过（push 事件）或失败（冲突）时，仍然构建当前 main
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Setup JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Report dependency mode
+        env:
+          GIT_ACTOR: ${{ secrets.GIT_ACTOR }}
+          GIT_TOKEN: ${{ secrets.GIT_TOKEN }}
+        run: |
+          if [ -n "${GIT_TOKEN:-}" ]; then
+            echo "::notice::已提供 GIT_TOKEN，使用官方 hyperceiler-expansion。"
+          else
+            echo "::notice::未提供 GIT_TOKEN，使用 local-maven 离线兜底产物（见 FORK.md）。"
+          fi
+
+      - name: Build debug APK
+        env:
+          GIT_ACTOR: ${{ secrets.GIT_ACTOR }}
+          GIT_TOKEN: ${{ secrets.GIT_TOKEN }}
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Show APK SHA256
+        run: |
+          APK_FILE=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          echo "### Build Success" >> "$GITHUB_STEP_SUMMARY"
+          echo "|Artifact|SHA256|" >> "$GITHUB_STEP_SUMMARY"
+          echo "|:---:|:---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "|$(basename "$APK_FILE")|$(sha256sum "$APK_FILE" | cut -d' ' -f1)|" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: HyperCeiler-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 9
