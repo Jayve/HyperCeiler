@@ -375,6 +375,9 @@ jobs:
   # host). That test therefore has no CI coverage here - the skip is reported,
   # not hidden.
   native_host_tests:
+    # host 侧原生测试当前在上游 CI 环境（clang 新版本）会因 'strnlen' 未声明而编译失败，
+    # 与本 fork 无关，因此同样只在官方仓库运行。
+    if: github.repository == 'ReChronoRain/HyperCeiler'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

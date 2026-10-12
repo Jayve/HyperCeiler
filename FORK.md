@@ -62,8 +62,14 @@
   执行 `./gradlew assembleDebug`，上传 APK 产物并输出 SHA256。
 
 `.github/workflows/ci_build.yml` 增加了 `github.repository == 'ReChronoRain/HyperCeiler'`
-判断：上游 CI 依赖官方签名密钥，fork 里跑必然失败，交由 `fork_ci.yml` 负责。
-`release_build.yml` 未改动（只在 `[release]`/`[beta]` 提交时才触发）。
+判断（`build_app` 与 `native_host_tests`）：前者依赖官方签名密钥，后者在上游 CI 环境会因
+`'strnlen'` 未声明（源文件缺少 `<cstring>`）而编译失败，两者都与 fork 无关，
+fork 里的构建交由 `fork_ci.yml` 负责。`release_build.yml` 未改动
+（只在 `[release]`/`[beta]` 提交时才触发）。
+
+> 顺手发现：`app/src/main/cpp/nativehook/nhk_base.h`、`elf_image.h` 里用了 `strnlen`
+> 但没有引入 `<cstring>`，上游 host 测试在新版 clang 上会挂。需要的话可以给上游提
+> 一个加 include 的小 PR。
 
 ## 3. 依赖与凭据（CI 构建的前提）
 
