@@ -120,6 +120,50 @@ gh secret set GIT_TOKEN  --repo Jayve/HyperCeiler --body "<你的 PAT>"
 
 重新生成兜底产物：`./tools/build-expansion-compat.ps1`（需要 JDK 17+ 与 Android SDK）。
 
+## 4. 截屏时隐藏状态栏修复（重复注册）
+
+### 问题
+
+HyperOS 3（Android 15 / SDK 35）上开启「截屏时隐藏状态栏」后，截图期间状态栏会正常隐藏，
+但截图结束后再也不会恢复：状态栏一直不显示，直到重启 SystemUI 或重启手机。
+
+### 根因
+
+`SystemUIV.onPackageLoaded()` 里 `initHook(new HideStatusBarBeforeScreenshot(), ...)` 出现了两次
+（上游同样如此），而 `BaseLoad.initHook()` 不去重，于是同一条规则被实例化两次、各自注册一个
+`miui.intent.TAKE_SCREENSHOT` 的 BroadcastReceiver，挂在同一个 `MiuiPhoneStatusBarView` 上。
+
+上游 PR #1681（`4e9dc2789`，2026-08-31）把接收端从无状态写法
+（`view.setVisibility(finished ? VISIBLE : INVISIBLE)`）改成了「先记住隐藏前的可见性，收尾时恢复」
+并把它存在实例字段里，重复注册随即变成故障：
+
+| 阶段 | 实例 #1 | 实例 #2 |
+| --- | --- | --- |
+| `IsFinished=false` | 存 VISIBLE(0) → 设 INVISIBLE(4) | 读到的已是 4 → 存 4 → 设 INVISIBLE(4) |
+| `IsFinished=true` | 恢复到 0 | **恢复到 4 → 状态栏保持隐藏** |
+
+即后到的实例把「被隐藏后的 INVISIBLE」当成了恢复值。旧实现无状态，重复注册没有副作用，
+所以这个重复注册潜伏了很久。
+
+### 改动
+
+- `library/libhook/.../rules/systemui/statusbar/HideStatusBarBeforeScreenshot.java`：
+  隐藏状态改为进程内唯一、按 view 记录（`HIDDEN_STATUS_BARS`），「隐藏前的可见性」只在第一次
+  隐藏该 view 时记录；收尾时恢复所有被本规则隐藏过的 view，因此重复注册、状态栏 view 重建
+  都不会再互相覆盖状态。同一个 view 只注册一个 receiver（`REGISTERED_VIEWS`），热重载前仍会
+  把状态栏放出来。
+- `library/libhook/.../base/BaseLoad.java`：同一 generation 内按规则类去重，重复注册只执行
+  第一次并输出告警，避免同类问题再次随上游同步回归（`SystemSettingsB`、`SecurityCenter`
+  里各有一处同样的重复注册，也会被拦下）。
+- `library/libhook/.../app/SystemUI/SystemUIV.java`：删掉 `// Other` 分组下重复的那一行。
+
+### 验证
+
+1. 模块作用域勾选「系统界面」与「截屏」，开启「截屏时隐藏状态栏」，重启（或重启 SystemUI）；
+2. 详细日志下应只出现一次 `HOOK_STATE=SELECTED`、一次 `HOOK_STATE=INSTALLED`；
+3. 截一张图，日志里 `finished=true` 的 `CALLBACK_HIT` 应为 `visibility=0`（旧实现是 `4`），
+   状态栏在截图结束后立刻恢复。
+
 ## 本地构建
 
 - JDK 25（`kotlin.jvmToolchain(25)`）、Android SDK（`compileSdk 37`）；
