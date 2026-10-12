@@ -1,8 +1,11 @@
 # expansion-compat（离线兜底产物源码）
 
-`com.sevtinge.hyperceiler:hyperceiler-expansion` 由上游发布在 **GitHub Packages 私有仓库**
-（`https://maven.pkg.github.com/ReChronoRain/HyperCeiler`）。没有 `read:packages` 凭据时，
-fork 里无法解析该依赖，构建会在依赖解析阶段失败。
+`com.sevtinge.hyperceiler:hyperceiler-expansion` 由上游发布在 GitHub Packages
+（`https://maven.pkg.github.com/ReChronoRain/HyperCeiler`）。没有 `read:packages` 凭据时
+fork 里无法解析该依赖。
+
+> 注意：同一仓库还托管了 `fan.miuix:*`（Maven Central/JitPack 上都没有），所以本兜底
+> **无法**让 CI 完全脱离凭据；它只是在官方扩展库不可用时提供一个可用替代，详见 FORK.md。
 
 本目录只补齐 HyperCeiler 主仓库实际引用到的成员：
 

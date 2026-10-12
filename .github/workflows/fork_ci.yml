@@ -112,16 +112,18 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Report dependency mode
+      - name: Check GitHub Packages credentials
         env:
           GIT_ACTOR: ${{ secrets.GIT_ACTOR }}
           GIT_TOKEN: ${{ secrets.GIT_TOKEN }}
         run: |
-          if [ -n "${GIT_TOKEN:-}" ]; then
-            echo "::notice::已提供 GIT_TOKEN，使用官方 hyperceiler-expansion。"
-          else
-            echo "::notice::未提供 GIT_TOKEN，使用 local-maven 离线兜底产物（见 FORK.md）。"
+          if [ -z "${GIT_ACTOR:-}" ] || [ -z "${GIT_TOKEN:-}" ]; then
+            echo "::error::缺少 GIT_ACTOR / GIT_TOKEN secret。"
+            echo "::error::上游把 fan.miuix:* 与 com.sevtinge.hyperceiler:hyperceiler-expansion 都放在 GitHub Packages（maven.pkg.github.com/ReChronoRain/HyperCeiler），该 Maven 端点强制鉴权，匿名拉取返回 401，因此没有 read:packages 凭据时依赖解析必然失败。"
+            echo "::error::请在 Settings → Secrets and variables → Actions 添加：GIT_ACTOR = PAT 所属 GitHub 用户名，GIT_TOKEN = 具备 read:packages 的 PAT。详见 FORK.md。"
+            exit 1
           fi
+          echo "::notice::已提供 GitHub Packages 凭据（GIT_ACTOR=${GIT_ACTOR}）。"
 
       - name: Build debug APK
         env:

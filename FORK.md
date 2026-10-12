@@ -58,26 +58,48 @@
 - 触发：`push` 到 `main`、每天定时（21:00 UTC）、手动 `workflow_dispatch`；
 - `sync_upstream`：把 `upstream/main` 合并进 `main` 并推送；冲突时中止合并并自动开/更新
   带 `sync-conflict` 标签的 Issue 提示手动处理；
-- `build`：同步后（或 push 后）用 JDK 25 执行 `./gradlew assembleDebug`，上传 APK 产物。
+- `build`：先检查 GitHub Packages 凭据（缺失时立即以明确原因失败，见下一节），再用 JDK 25
+  执行 `./gradlew assembleDebug`，上传 APK 产物并输出 SHA256。
 
 `.github/workflows/ci_build.yml` 增加了 `github.repository == 'ReChronoRain/HyperCeiler'`
 判断：上游 CI 依赖官方签名密钥，fork 里跑必然失败，交由 `fork_ci.yml` 负责。
 `release_build.yml` 未改动（只在 `[release]`/`[beta]` 提交时才触发）。
 
-## 3. 私有依赖的离线兜底
+## 3. 依赖与凭据（CI 构建的前提）
 
-上游把 `com.sevtinge.hyperceiler:hyperceiler-expansion:1.0.0` 发布在 GitHub Packages 私有
-仓库，fork 默认没有 `read:packages` 凭据，构建会在依赖解析阶段失败。因此：
+上游把两类依赖都放在 GitHub Packages 仓库
+`https://maven.pkg.github.com/ReChronoRain/HyperCeiler`：
 
-- `local-maven-src/expansion-compat/`：补齐主仓库实际引用到的成员
-  （`SignUtils.isSignCheckPass` / `getSHA256Signature`、`TokenUtils.getDeviceToken`）；
-- `local-maven/`：编译产物，由 `settings.gradle.kts` 注册为最后一个仓库兜底；
-- 提供凭据时（`GIT_ACTOR`/`GIT_TOKEN` 或 `signing.properties` 中的 `gpr.user`/`gpr.key`）
-  Gradle 会优先使用官方产物，兜底产物不参与构建；
-- 缺失凭据时不再直接让配置阶段抛异常，只打印 WARNING。
+- `fan.miuix:*`（16 个 miuix 组件，Maven Central / aliyun / JitPack 上都没有）；
+- `com.sevtinge.hyperceiler:hyperceiler-expansion:1.0.0`（本仓库私有扩展库）。
 
-想用官方扩展库：在 fork 的 `Settings → Secrets and variables → Actions` 里添加
-`GIT_ACTOR`（GitHub 用户名）与 `GIT_TOKEN`（具备 `read:packages` 的 PAT）。
+这些包在网页上是公开可见的（`https://github.com/orgs/ReChronoRain/packages?package_type=maven`），
+但 GitHub 的 Maven 端点**强制鉴权**——匿名请求返回 401。因此 fork 的 CI 必须提供
+`read:packages` 凭据，`fork_ci.yml` 会在构建前检查并给出明确报错。
+
+添加凭据（一次性）：
+
+```bash
+# 1) 生成 PAT：Settings → Developer settings → Personal access tokens (classic)
+#    → 勾选 read:packages（fine-grained token 需要 "Packages: Read"）
+# 2) 写入 fork 的 Actions secrets
+gh secret set GIT_ACTOR --repo Jayve/HyperCeiler --body "Jayve"
+gh secret set GIT_TOKEN  --repo Jayve/HyperCeiler --body "<你的 PAT>"
+```
+
+之后 `Fork Sync & Build` 的构建步骤即可正常解析依赖。
+
+### 离线兜底（可选，仅覆盖扩展库）
+
+`hyperceiler-expansion` 只有 3 个成员被主仓库引用，因此这里补了一份可离线使用的实现：
+
+- `local-maven-src/expansion-compat/`：`SignUtils.isSignCheckPass` / `getSHA256Signature`、
+  `TokenUtils.getDeviceToken` 的兜底实现（源码）；
+- `local-maven/`：编译产物，由 `settings.gradle.kts` 注册为最后一个仓库；
+- 提供凭据时 Gradle 优先使用官方产物，兜底产物不参与构建；
+- `settings.gradle.kts` 在凭据缺失时不再让配置阶段抛异常，只打印 WARNING。
+
+注意：`fan.miuix:*` 没有替代品，所以该兜底**不能**让 CI 完全脱离凭据。
 
 重新生成兜底产物：`./tools/build-expansion-compat.ps1`（需要 JDK 17+ 与 Android SDK）。
 
